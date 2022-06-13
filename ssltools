@@ -8,9 +8,10 @@
 ##         Created:  2022-05-01
 ##   Last Modified:
 ##         Version:  1
-##    Source Notes:
-##
-##
+##    Source Notes: https://www.digitalocean.com/community/tutorials/openssl-essentials-working-with-ssl-certificates-private-keys-and-csrs
+##                  https://www.switch.ch/pki/manage/request/csr-openssl/
+##                  https://medium.com/curiouscaloo/how-to-generate-a-wildcard-cert-csr-with-a-config-file-for-openssl-8a6613ab342f
+##                  https://www.golinuxcloud.com/openssl-generate-csr/
 ##
 ###===============================================================##
 
