@@ -1,0 +1,462 @@
+#!/bin/bash
+
+###===============================================================##
+##
+##            Name:  ssltool
+##          Author:  mbonne
+##         Purpose:  CLI tool which uses builtin binary, to create private key, csr, validate md5 hash of certs
+##         Created:  2022-05-01
+##   Last Modified:
+##         Version:  1
+##    Source Notes:
+##
+##
+##
+###===============================================================##
+
+## Setup the colour codes.
+RED="\033[1;31m"
+GREEN="\033[1;32m"
+NOCOLOR="\033[0m"
+##usage -> echo -e "${GREEN}text-goes-here${NOCOLOR}\n"
+## \n for newline
+
+###===============================================================##
+#[[ -n "$csrFile" ]] && openssl req -text -noout -verify -in "$csrFile" 
+#[[ -n "$pubKey" ]] && openssl x509 -in "$pubKey" -text -noout
+#[[ -n "$privKey" ]] && openssl rsa -in "$privKey" -check
+
+###==========================FUNCTIONS============================##
+## Option 1
+
+function generateCSR(){
+  #REMOVE LINE BELOW WHEN THIS OPTION WORKS :)
+  echo -e "${RED}->THIS OPTION DOESN'T WORK 100% YET<-${NOCOLOR}"
+
+
+  ## Working directory. Script operates in user space. 
+  ## Stores the Config files for later use in hidden folder within your Users Home.
+  sslToolsDirectory="$HOME/.config/sslTool" 
+
+  ## House Keeping
+  [ ! -d "$sslToolsDirectory" ] && echo -e "${GREEN}SSL Tool can't find $sslToolsDirectory...\n\
+This directory is used to store details on previously created CSR, and Private Key files.\n\
+Creating directory now...\n${NOCOLOR}" && mkdir -p "$sslToolsDirectory"
+
+###========================== CSR VARIABLES============================##
+  
+  ## Subjects:
+  commonName=""       # CN=Common Name aka FQDN
+  sanNames=""         # Additional FQDN aka Subject Alternate Names
+  organisationName="" # O=Organisation
+  countryCode="AU"    # C=Country Code
+  stateName="NSW"     # ST=State aka Region
+  cityName="Sydney"   # L=Location aka City
+
+###========================== CSR VARIABLES============================##
+
+## OPTION 1.1 NEW CSR
+  function newCSR(){
+    echo -e "${GREEN}Collecting info to build CSR cnf file here: $sslToolsDirectory\n\
+  -> There is no error checking.\n\
+  -> Double check your spelling.\n\
+  -> Make sure DNS is correct.${NOCOLOR}"
+
+  
+#------------------COMMON NAME------------------#
+  echo -e "\n---------------------------------------\n"
+  while true; do
+    read -e -r -p "Enter FQDN of Host: " commonName
+    if [  -z "$commonName" ] ; then
+      echo -e "${RED}Enter the FQDN of your Host.\n\
+      Example: domain.com or server.domain.com or *.domain.com\n${NOCOLOR}" >&1
+    else
+      commonName=$(echo "$commonName" | tr '[:upper:]' '[:lower:]')
+      break
+    fi
+  done
+
+#------------------SAN NAMES-------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "${GREEN}Enter additional host names you want the certificate to cover\n\
+ -> Each SAN must be separated with a space.\n\
+ -> ${RED}The SAN must not be the same as FQDN of Host.\n\
+ -> ${GREEN}Leave blank if not specifying any.\n\
+https://www.digicert.com/faq/subject-alternative-name.htm\n${NOCOLOR}"
+  while true; do
+    read -e -r -p "Enter SAN for Certificate: " sanNames
+    sanNames=$(echo "$sanNames" | tr '[:upper:]' '[:lower:]')
+    break
+  done
+
+#---------------ORGANISATION NAME---------------#
+
+  echo -e "\n---------------------------------------\n"
+  while true; do
+    read -e -r -p "Enter Company Name of Host: " organisationName
+    if [  -z "$organisationName" ] ; then
+      echo -e "${RED}COMPANY NAME CAN NOT BE BLANK.\n${NOCOLOR}" >&1
+    else
+      break
+    fi
+  done
+
+#------------------COUNTRY NAME-------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "Leave blank for Default:${GREEN} $countryCode${NOCOLOR}\n"
+  read -e -r -p "Enter Country Code: " usersCountryCode
+  usersCountryCode=${usersCountryCode:-${countryCode}}
+
+#-------------------STATE NAME--------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "Leave blank for Default:${GREEN} $stateName${NOCOLOR}\n"
+  read -e -r -p "Enter Country Code: " usersStateName
+  usersStateName=${usersStateName:-${stateName}}
+
+#-------------------CITY NAME---------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "Leave blank for Default:${GREEN} $cityName${NOCOLOR}\n"
+  read -e -r -p "Enter Country Code: " usersCityName
+  usersCityName=${usersCityName:-${cityName}}
+
+
+#-------------------CSR DETAILS---------------------#
+## FINISHED POPULATING THE CSR VARIABLES
+  echo -e "\n---------------------------------------\n"
+  echo -e "${GREEN}You have entered:${NOCOLOR}\n\
+  FQDN......$commonName\n\
+  SAN.......$sanNames\n\
+  Org.......$organisationName\n\
+  Country...$usersCountryCode\n\
+  State.....$usersStateName\n\
+  City......$usersCityName\n"
+
+  ## TODO: Make process start again if no is selected.
+  echo -e "${GREEN}Are the details correct?\nSelect yes to continue or no to exit.${NOCOLOR}"
+  select yn in "Yes" "No"; do
+    case $yn in
+        Yes ) break;;
+        No ) exit;;
+    esac
+  done
+
+  ## CHECK IF CONFIG FILE ALREADY EXISTS OR NOT
+  ## Backups up previous version just in case.
+  if [ -f "$sslToolsDirectory/$commonName.cnf" ]; then
+  echo -e "\n${RED}Config file for $commonName exists, backing up old version. Only keeps 1 prev version...\n${NOCOLOR}"
+  ## Used stat command to find the file created date and append to file name, but it made the folder name messy later in script.
+  #cnfBirthDate=$(stat -f %SB -t %Y%m%d%H%M%S "$sslToolsDirectory/$commonName.cnf")
+  mv -v -i "$sslToolsDirectory/$commonName.cnf" "$sslToolsDirectory/$commonName-old.cnf"
+  fi
+
+
+########## Heredoc to create OpenSSL Configuration file - .cnf ##########
+## .cnf files can also be used to store all of the details needed to generate the CSR. 
+## https://www.switch.ch/pki/manage/request/csr-openssl/
+## https://medium.com/curiouscaloo/how-to-generate-a-wildcard-cert-csr-with-a-config-file-for-openssl-8a6613ab342f
+
+#$sanNames
+
+altNames=DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
+# subjectAltName entries: to add DNS aliases to the CSR, delete
+# the '#' character in the ALTNAMES line, and change the subsequent
+# 'DNS:' entries accordingly.
+
+  if [ -z "${sanNames}" ]; then
+    echo -e "This request has not specified SAN:\n"
+  else
+    echo -e "This request will have the following SAN: $sanNames\n"
+    ## Build array with sanNames Variable. Delimeter is a space
+    IFS=" " read -r -a sanNames <<< "$sanNames"
+    ## Make another variable for use inside the Config file 
+    altNames=DNS:$commonName
+    ## Iterate over the Array and add the formatting for Config file.
+    if ((${#sanNames[@]})); then
+      for n in "${sanNames[@]}"; do
+        altNames="${altNames} , DNS:$n" 
+      done
+    fi
+  fi
+
+
+  cat >"$sslToolsDirectory/$commonName.cnf" <<EOF
+# OpenSSL configuration file for creating a CSR
+# To generate CSR from this file use:
+# openssl req -new -config myserver.cnf -keyout myserver.key -out myserver.csr
+
+[ req ]
+distinguished_name = req_distinguished_name
+req_extensions     = req_ext
+prompt             = no
+
+[ req_distinguished_name ]
+C                  = $usersCountryCode
+ST                 = $usersStateName
+L                  = $usersCityName
+O                  = $organisationName
+CN                 = $commonName
+
+[ req_ext ]
+subjectAltName = $altNames
+EOF
+############################################
+
+  csrFromCnf "$sslToolsDirectory/$commonName.cnf"
+
+  } ## END OPTION 1.1 - Function 'newCSR'
+
+## OPTION 1.2 RENEW FROM EXISTING
+  function renewFromExisting(){
+    ## This Function is to be used when renewing the CSR
+    PS3='Type number of the file to use for CSR: '
+
+    unset files i
+    while IFS= read -r -d $'\0' f; do
+      files[i++]="$f"
+    done < <(find "$sslToolsDirectory" -maxdepth 1 -type f -name "*.cnf" -print0 )
+    
+    select file in "${files[@]}" "Exit"; do
+      case $file in
+      *.cnf)
+        csrFromCnf "$file"
+        ;;
+      "Exit")
+        break
+        ;;
+      *)
+        echo -e "${RED}Try again. Select a valid number.${NOCOLOR}"
+        ;;
+      esac
+    done
+
+  } ## END OPTION 1.2
+
+  ## THIS BUILDS THE CSR FROM CONFIG FILE
+  function csrFromCnf(){
+    echo -e "\n---------------------------------------\n"
+    echo -e "Using the following OpenSSL:\n$(which openssl)\n$(openssl version)\n"
+    echo -e "Best practice suggests to use a new certificate signing request (CSR) and Private Key when renewing your SSL/TLS certificate.\n
+This script does not store the Private Key password anywhere.
+Without the Private Key password, the certificate is useless. You will not be able to use it on your server.
+If your Private Key is not secured with a password and key falls into the wrong hands, consider the encryption useless.\n"
+
+    echo -e "${GREEN}Generating CSR and Private Key file from the following cnf...\n${NOCOLOR}"
+    ## $1 is the target from previous function when 'csrFromCnf' was called.
+    echo -e "$1\n"
+    ## Removing the .cnf from the end of the $1 file name.
+    certFolder=$(echo "$1" | sed 's/....$//')
+    ## commonName variable was missing contents if renewing from existing...
+    commonName=$(basename "$certFolder")
+    ## Adding the date to end of the file name.
+    certFolder="${certFolder}-$(date '+%Y-%m-%d')"
+    ## Check if directory exists, and setup folder for .csr and .key if it doesn't exist already.
+    [ ! -d "$certFolder" ] && echo -e "\n${GREEN}Setting up Certificate folder: $certFolder\n${NOCOLOR}" && mkdir -p "$certFolder" \
+    || echo -e "\n${GREEN}Using the following Certificate folder: $certFolder\n${NOCOLOR}" 
+
+    ## Generating CSR and Private Key
+    ## 2048 or 4096 https://expeditedsecurity.com/blog/measuring-ssl-rsa-keys/
+    ## 2048bit is default for most servers, and widley used everywhere. 
+    ## 4096bit has increased encryption strength, but takes longer to decrypt.
+    
+    echo -e "${GREEN}Select Private Key bit size.${NOCOLOR}
+    https://expeditedsecurity.com/blog/measuring-ssl-rsa-keys/
+    -> 2048bit is default for most servers, and widley used everywhere. 
+    -> 4096bit has increased encryption strength, but takes longer to decrypt.\n"
+    select keyBitSize in "2048" "4096"; do
+      case $keyBitSize in
+          2048 ) keyBitSize="2048" && break;;
+          4096 ) keyBitSize="4096" && break;;
+      esac
+    done
+    ## PROMPT USER FOR PRIVATE KEY PASSWORD 
+    ## Loops until password entered the same twice consecutively. Doesn't show Password on screen.
+    echo -e "${RED} -> USE A STRONG PASSWORD <-${NOCOLOR}\n"
+    #TODO: Make loop check for minimum password of 4 characters?
+    while :
+    do
+      read -e -r -s -p "Input password    : " privKeyPassword
+      echo
+      read -e -r -s -p "Re-enter password : " verify
+    
+      if [ "$privKeyPassword" = "$verify" ]; then
+          break;
+      fi
+      ## Otherwise start again...
+      echo -e "\n${RED}Password does not match. Try again.\n${NOCOLOR}"
+    done
+
+    #################### OPENSSL COMMAND   ####################
+    openssl req \
+    -newkey rsa:"$keyBitSize" \
+    -passout pass:"$privKeyPassword" \
+    -keyout "$certFolder/$commonName.key" \
+    -config "$1" \
+    -out "$certFolder/$commonName.csr"
+    ###########################################################
+
+    echo -e "${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
+    cat "$certFolder/$commonName.csr"
+    echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
+    echo
+    echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
+    openssl rsa -in "$privKey" -passin pass:"$privKeyPassword"
+    echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
+    echo
+    echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
+    openssl req -noout -text -in "$certFolder/$commonName.csr"
+    echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
+    echo -e "Folder location: $certFolder\n"
+
+    unset privKeyPassword verify
+    exit $?
+  } ## END of csrFromCnf Function
+
+## SUBMENU FOR OPTION 1
+
+PS3='Select option: '
+options=("New CSR" "Renew from existing" "Build from existing" "Quit")
+select opt in "${options[@]}"
+do
+  case $opt in
+    "New CSR")
+      newCSR "$@"
+      break
+      ;;
+    "Renew from existing")
+      renewFromExisting "$@"
+      break
+      ;;
+    "Build from existing")
+      ## TODO: MAKE THIS OPTION
+      echo -e "${RED}THIS DOEN'T WORK YET${NOCOLOR}"
+      #buildFromExisting "$@"
+      exit 0
+      ;;
+    "Quit")
+      echo -e "${RED}SSL Tool Aborted${NOCOLOR}"
+      exit 0
+      ;;
+    *) echo -e "${RED}invalid option $REPLY${NOCOLOR}";;
+  esac
+done
+
+
+} ## END OF OPTION 1
+
+###===============================================================#####===============================================================##
+## Option 2
+
+function checkCertFiles(){
+  unset privKey pubKey csrFile
+  read -e -r -p "Enter Path To CSR file(.csr): " csrFile
+  read -e -r -p "Enter Path To Public Key(.crt or .pem): " pubKey
+  read -e -r -p "Enter Path To Private Key(.key or .pem): " privKey
+ 
+  echo -e "${GREEN}Printing md5 Hash of each file targeted:${NOCOLOR}\n"
+
+  ##TODO: Work out how to compare all array values and make sure they're the same. An IF statement can only compare 2 things at a time.
+
+  declare -a hashArray
+  hashArray+=("$([ -f "$csrFile" ] && openssl req -noout -modulus -in "$csrFile" | openssl md5)")
+  hashArray+=("$([ -f "$pubKey" ] && openssl x509 -noout -modulus -in "$pubKey" | openssl md5)")
+  hashArray+=("$([ -f "$privKey" ] && openssl rsa -noout -modulus -in "$privKey" | openssl md5)")
+
+  for i in ${hashArray[*]}
+  do
+    echo -e "$i"
+  done
+
+  echo -e "\nAll md5 vaules shown need to match.\n"
+
+
+} ## END OF OPTION 2
+###===============================================================#####===============================================================##
+## Option 3
+
+function showCSRDetails {
+  while true; do
+    read -e -r -p "Enter Path To .csr file: " csrFile
+    if [[ $csrFile != *.csr ]]; then
+      echo -e "${RED}File type should be .csr.\nRe-Enter file path to your CSR file${NOCOLOR}" >&2
+    else
+      openssl req -text -noout -verify -in "$csrFile"
+      echo -e "${GREEN}\n\
+      Double check your Common Name(CN) and Subject Alternative Names(SAN)\n\
+      Be sure to validate Private Key Hash against this CSR.\n\
+      You can re-run this script and select Option 2 to validate hash vaulues.${NOCOLOR}"
+      break
+    fi
+  done
+} ## END OF OPTION 3
+
+###===============================================================#####===============================================================##
+## Option 4
+
+function showSSL {
+  while true; do
+    read -e -r -p "Enter host FQDN: " hostURL
+    ipAddress="$(dig "$hostURL" +short)"
+
+    if [ -z "$ipAddress" ]; then
+      echo -e "${RED}dig could not verify host.\nDon't include https:// if you have${NOCOLOR}" >&2
+
+    #if ! dig "$hostURL" +short > /dev/null 2>&1; then
+      #echo -e "${RED}Couldn't verify host FQDN.\nDon't include https://${NOCOLOR}" >&2
+    else
+      echo -e "${GREEN}Checking SSL Certificate:${NOCOLOR} $1"
+      echo | openssl s_client -showcerts -servername "$hostURL" -connect "$hostURL":443 2>/dev/null | openssl x509 -inform pem -noout -text
+      sslInfo="$(curl --insecure -vvI https://"$hostURL" 2>&1 | awk 'BEGIN { cert=0 } /^\* SSL connection/ { cert=1 } /^\*/ { if (cert) print }')"
+      echo "$sslInfo"
+
+      if [[ $sslInfo != *"SSL certificate verify ok."* ]]; then
+        echo -e "${RED}Check Certificate Validity!${NOCOLOR}"
+        exit 1
+      fi
+      break
+      fi
+  done
+
+  } ## END OF OPTION 4
+
+###===============================================================#####===============================================================##
+
+## THIS IS THE MAIN MENU TO SELECT FROM
+
+PS3='Select SSL operation: '
+options=("Generate CSR" "Validate Cert Hash" "Show CSR Details" "Check SSL On Host" "Quit")
+select opt in "${options[@]}"
+do
+  case $opt in
+    "Generate CSR")
+      echo "Preparing Certificate Signing Request"
+      generateCSR "$@"
+      break
+      ;;
+    "Validate Cert Hash")
+      echo "Comparing md5 values for targeted files"
+      checkCertFiles "$@"
+      break
+      ;;
+    "Show CSR Details")
+      echo -e "${GREEN}Showing details of targeted Certificate Signing Request file${NOCOLOR}"
+      showCSRDetails "$@"
+      break
+      ;;
+    "Check SSL On Host")
+      echo -e "${GREEN}Checking the certificate and validity status of target host.${NOCOLOR}"
+      showSSL "$@"
+      break
+      ;;
+    "Quit")
+      echo -e "${RED} SSL Tool Aborted${NOCOLOR}"
+      exit 0
+      ;;
+    *) echo -e "${RED} invalid option $REPLY${NOCOLOR}";;
+  esac
+done
+
+exit $?
