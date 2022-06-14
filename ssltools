@@ -12,7 +12,8 @@
 ##                  https://www.switch.ch/pki/manage/request/csr-openssl/
 ##                  https://medium.com/curiouscaloo/how-to-generate-a-wildcard-cert-csr-with-a-config-file-for-openssl-8a6613ab342f
 ##                  https://www.golinuxcloud.com/openssl-generate-csr/
-##
+##                  https://www.switch.ch/pki/manage/request/csr-openssl/
+##                  https://medium.com/curiouscaloo/how-to-generate-a-wildcard-cert-csr-with-a-config-file-for-openssl-8a6613ab342f
 ###===============================================================##
 
 ## Setup the colour codes.
@@ -155,12 +156,8 @@ https://www.digicert.com/faq/subject-alternative-name.htm\n${NOCOLOR}"
   fi
 
 
-########## Heredoc to create OpenSSL Configuration file - .cnf ##########
-## .cnf files can also be used to store all of the details needed to generate the CSR. 
-## https://www.switch.ch/pki/manage/request/csr-openssl/
-## https://medium.com/curiouscaloo/how-to-generate-a-wildcard-cert-csr-with-a-config-file-for-openssl-8a6613ab342f
 
-#$sanNames
+########## Heredoc to create OpenSSL Configuration file - .cnf ##########
 
 altNames=DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
 # subjectAltName entries: to add DNS aliases to the CSR, delete
@@ -168,7 +165,7 @@ altNames=DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
 # 'DNS:' entries accordingly.
 
   if [ -z "${sanNames}" ]; then
-    echo -e "This request has not specified SAN:\n"
+    echo -e "This request has no specified SAN:\n"
   else
     echo -e "This request will have the following SAN: $sanNames\n"
     ## Build array with sanNames Variable. Delimeter is a space
@@ -204,7 +201,8 @@ CN                 = $commonName
 [ req_ext ]
 subjectAltName = $altNames
 EOF
-############################################
+########################### End of Heredoc ############################
+
 
   csrFromCnf "$sslToolsDirectory/$commonName.cnf"
 
@@ -289,7 +287,7 @@ If your Private Key is not secured with a password and key falls into the wrong 
       ## Otherwise start again...
       echo -e "\n${RED}Password does not match. Try again.\n${NOCOLOR}"
     done
-
+    
     #################### OPENSSL COMMAND   ####################
     openssl req \
     -newkey rsa:"$keyBitSize" \
@@ -304,7 +302,7 @@ If your Private Key is not secured with a password and key falls into the wrong 
     echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
     echo
     echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
-    openssl rsa -in "$privKey" -passin pass:"$privKeyPassword"
+    openssl rsa -in "$certFolder/$commonName.key" -passin pass:"$privKeyPassword"
     echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
     echo
     echo -e "\n${GREEN}----------------------------------------------------------------${NOCOLOR}\n"
