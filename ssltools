@@ -160,7 +160,7 @@ https://www.digicert.com/faq/subject-alternative-name.htm\n${NOCOLOR}"
 
 ########## Heredoc to create OpenSSL Configuration file - .cnf ##########
 
-altNames=DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
+altNames=""#DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
 # subjectAltName entries: to add DNS aliases to the CSR, delete
 # the '#' character in the ALTNAMES line, and change the subsequent
 # 'DNS:' entries accordingly.
@@ -172,15 +172,16 @@ altNames=DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
     ## Build array with sanNames Variable. Delimeter is a space
     IFS=" " read -r -a sanNames <<< "$sanNames"
     ## Make another variable for use inside the Config file 
-    altNames=DNS:$commonName
+    altNames=DNS:$sanNames
     ## Iterate over the Array and add the formatting for Config file.
     if ((${#sanNames[@]})); then
-      for n in "${sanNames[@]}"; do
+      for n in "${sanNames[@]:1}"; do
         altNames="${altNames} , DNS:$n" 
       done
     fi
   fi
 
+subjectAltName="subjectAltName = $altNames"
 
   cat >"$sslToolsDirectory/$commonName.cnf" <<EOF
 # OpenSSL configuration file for creating a CSR
@@ -200,7 +201,7 @@ O                  = $organisationName
 CN                 = $commonName
 
 [ req_ext ]
-subjectAltName = $altNames
+$subjectAltName
 EOF
 ########################### End of Heredoc ############################
 
