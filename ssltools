@@ -83,8 +83,9 @@ Creating directory now...\n${NOCOLOR}" && mkdir -p "$sslToolsDirectory"
   echo -e "\n---------------------------------------\n"
   echo -e "${GREEN}Enter additional host names you want the certificate to cover\n\
  -> Each SAN must be separated with a space.\n\
- -> ${RED}The SAN must not be the same as FQDN of Host.\n\
- -> ${GREEN}Leave blank if not specifying any.\n\
+ (e.g. a.server.com b.server.com c.server.com)\n\
+ ${RED}-> The SAN must not be the same as FQDN of Host.\n\
+ ${GREEN}-> Leave blank if not specifying any.\n\
 https://www.digicert.com/faq/subject-alternative-name.htm\n${NOCOLOR}"
   while true; do
     read -e -r -p "Enter SAN for Certificate: " sanNames
