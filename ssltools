@@ -16,6 +16,9 @@
 ##                  https://medium.com/curiouscaloo/how-to-generate-a-wildcard-cert-csr-with-a-config-file-for-openssl-8a6613ab342f
 ###===============================================================##
 
+##TODO: NEED TO HANDLE * ASTRISK IN THE FILENAME FOR WILDCARD CERTS. Find and replace * with STAR
+## TODO: Investigate need to swap period for underscore in filename. macOS Finder complains when there are more than one present in filename
+
 ## Setup the colour codes.
 RED="\033[1;31m"
 GREEN="\033[1;32m"
