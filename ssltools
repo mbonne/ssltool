@@ -36,7 +36,7 @@ NOCOLOR="\033[0m"
 
 function generateCSR(){
   #REMOVE LINE BELOW WHEN THIS OPTION WORKS :)
-  echo -e "${RED}->THIS OPTION DOESN'T WORK 100% YET<-${NOCOLOR}"
+  #echo -e "${RED}->THIS OPTION DOESN'T WORK 100% YET<-${NOCOLOR}"
 
 
   ## Working directory. Script operates in user space. 
@@ -141,23 +141,14 @@ https://www.digicert.com/faq/subject-alternative-name.htm\n${NOCOLOR}"
   State.....$usersStateName\n\
   City......$usersCityName\n"
 
-  ## TODO: Make process start again if no is selected.
-  echo -e "${GREEN}Are the details correct?\nSelect yes to continue or no to exit.${NOCOLOR}"
+## Confirm to continue and make certificate or 
+  echo -e "${GREEN}Are the details correct?\nSelect yes to continue or no to start over with CSR.${NOCOLOR}"
   select yn in "Yes" "No"; do
     case $yn in
         Yes ) break;;
-        No ) exit;;
+        No ) generateCSR "$@";;
     esac
   done
-
-  ## CHECK IF CONFIG FILE ALREADY EXISTS OR NOT
-  ## Backups up previous version just in case.
-  if [ -f "$sslToolsDirectory/$commonName.cnf" ]; then
-  echo -e "\n${RED}Config file for $commonName exists, backing up old version. Only keeps 1 prev version...\n${NOCOLOR}"
-  ## Used stat command to find the file created date and append to file name, but it made the folder name messy later in script.
-  #cnfBirthDate=$(stat -f %SB -t %Y%m%d%H%M%S "$sslToolsDirectory/$commonName.cnf")
-  mv -v -i "$sslToolsDirectory/$commonName.cnf" "$sslToolsDirectory/$commonName-old.cnf"
-  fi
 
 
 
@@ -175,18 +166,21 @@ altNames=""#DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
     ## Build array with sanNames Variable. Delimeter is a space
     IFS=" " read -r -a sanNames <<< "$sanNames"
     ## Make another variable for use inside the Config file 
-    altNames=DNS:$sanNames
+    altNames=DNS:"$sanNames"
     ## Iterate over the Array and add the formatting for Config file.
     if ((${#sanNames[@]})); then
       for n in "${sanNames[@]:1}"; do
-        altNames="${altNames} , DNS:$n" 
+        altNames="${altNames} , DNS:$n"
+        subjectAltName="subjectAltName = $altNames"
       done
+    else
+      subjectAltName=""
     fi
   fi
 
-subjectAltName="subjectAltName = $altNames"
 
-  cat >"$sslToolsDirectory/$commonName.cnf" <<EOF
+## Make here doc in temp folder - instead of directly in location: cat >"$sslToolsDirectory/$commonName.cnf"
+  cat >"$sslToolsDirectory/$commonName-tmp.cnf" <<EOF
 # OpenSSL configuration file for creating a CSR
 # To generate CSR from this file use:
 # openssl req -new -config myserver.cnf -keyout myserver.key -out myserver.csr
@@ -208,6 +202,17 @@ $subjectAltName
 EOF
 ########################### End of Heredoc ############################
 
+  ## CHECK IF CONFIG FILE ALREADY EXISTS OR NOT
+  ## Backups up previous version just in case.
+ if [[ "$(md5 "$sslToolsDirectory/$commonName-tmp.cnf" | awk '{print $4}')" == "$(md5 "$sslToolsDirectory/$commonName.cnf" | awk '{print $4}')" ]]; then
+  echo -e "\n${GREEN}Config file for $commonName exists and md5 checksum exact match, Will reuse the existing .cnf file...\n${NOCOLOR}"
+  rm "$sslToolsDirectory/$commonName-tmp.cnf"
+ else
+  echo -e "\n${RED}Config file for $commonName exists with different md5 checksum, backing up old version, adding creation date to name...\n${NOCOLOR}"
+  cnfBirthDate=$(stat -f %SB -t %Y%m%d-%H%M "$sslToolsDirectory/$commonName.cnf")
+  mv -f "$sslToolsDirectory/$commonName.cnf" "$sslToolsDirectory/$commonName-$cnfBirthDate.cnf"
+  mv -f "$sslToolsDirectory/$commonName-tmp.cnf" "$sslToolsDirectory/$commonName.cnf"
+ fi
 
   csrFromCnf "$sslToolsDirectory/$commonName.cnf"
 
@@ -239,19 +244,181 @@ EOF
 
   } ## END OPTION 1.2
 
-## OPTION 1.3 BUILD FROM EXISTING SSL CERTIFICATE
-  function buildFromExisting (){ 
-    ##
-    echo -e "\nEnter the full name of the server you want to generate a CSR configuration file for.\n"
+## OPTION 1.3 BUILD FROM EXISTING SSL CERTIFICATE VISIBLE WHEN CHECKING FQDN
+  function buildFromFQDN (){ 
+
+    echo -e "${GREEN}Collecting info to build CSR cnf file here: $sslToolsDirectory\n\
+  -> There is no error checking.\n\
+  -> Double check your spelling.\n\
+  -> Make sure DNS is correct.${NOCOLOR}"
+
+    echo -e "\n${GREEN}Enter the Fully Qualified Domain Name of the server you want to generate a CSR configuration file for.\n${NOCOLOR}"
     while true; do
-      read -e -r -p "Enter Server/Service FQDN: " organisationName
-      if [  -z "$organisationName" ] ; then
-        echo -e "${RED}COMPANY NAME CAN NOT BE BLANK.\n${NOCOLOR}" >&1
-      else
+      read -e -r -p "FQDN: " domainName
+      if (nslookup "$domainName" 2>/dev/null) ; then
         break
+      else
+        echo -e "${RED}nslookup cannot validate the FQDN. Check DNS and Server address.\nExample FQDN: my.server.com\n${NOCOLOR}" >&1
       fi
     done
-    fqdn=$(showSSL "$organisationName")
+    certificateDetails=$(echo | openssl s_client -showcerts -servername "$domainName" -connect "$domainName":443 2>/dev/null | openssl x509 -inform pem -noout -text)
+    #echo "$certificateDetails"
+###========================== CSR VARIABLES============================##
+  ## Subjects:
+  commonName="$domainName"       # CN=Common Name aka FQDN
+  #sanNames="$(echo "$certificateDetails" | grep DNS: | sed 's/DNS://g' | sed 's/,//g' | xargs)"         # Additional FQDN aka Subject Alternate Names
+  #organisationName="$(echo "$certificateDetails" | grep Issuer: | sed -e 's/.*O = \(.*\), OU.*/\1/' )" # O=Organisation
+  #countryCode="$(echo "$certificateDetails" | grep Issuer: | sed -e 's/.*C = \(.*\), O =.*/\1/' )"    # C=Country Code
+###========================== CSR VARIABLES============================##
+    ## Define all the subjects from certificateDetails variable.
+    issuerDetails=$(echo "$certificateDetails" | grep "Issuer: " | cut -d":" -f2-)
+    IFS=',' read -r -a CSRSubjects <<< "$issuerDetails"
+    ## Use for loop to iterate over the subjects and clear preceeding whitespace
+    echo  -e "\n${GREEN}Discovered Subjects for $domainName.\n${NOCOLOR}"
+    #for subject in "${CSRSubjects[@]}"
+    #do
+    #  echo "$subject"
+    #done
+
+    #echo  -e "\n${GREEN}Discovered SAN for $domainName.\n${NOCOLOR}"
+    sanNames=$(echo "$certificateDetails" | grep DNS: | sed 's/DNS://g' | sed 's/,//g' | xargs)
+    
+    #for san in $sanNames
+    #do
+    #  p+="$san"$'\n'
+    #done
+    #echo "$p"
+#---------------ORGANISATION NAME---------------#
+
+  echo -e "\n---------------------------------------\n"
+  while true; do
+    read -e -r -p "Enter Company Name of Host: " organisationName
+    if [  -z "$organisationName" ] ; then
+      echo -e "${RED}COMPANY NAME CAN NOT BE BLANK.\n${NOCOLOR}" >&1
+    else
+      break
+    fi
+  done
+#---------------ORGANISATION NAME---------------#
+
+  #echo -e "\n---------------------------------------\n"
+  #echo -e "Leave blank for Default Organisation Name:${GREEN} $organisationName${NOCOLOR}\n"
+  #read -e -r -p "Enter Organisation Name: " usersOrganisationName
+  #usersOrganisationName=${usersOrganisationName:-${organisationName}}
+
+#------------------COUNTRY NAME-------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "Leave blank for Default:${GREEN} $countryCode${NOCOLOR}\n"
+  read -e -r -p "Enter Country Code: " usersCountryCode
+  usersCountryCode=${usersCountryCode:-${countryCode}}
+
+#-------------------STATE NAME--------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "Leave blank for Default:${GREEN} $stateName${NOCOLOR}\n"
+  read -e -r -p "Enter Country Code: " usersStateName
+  usersStateName=${usersStateName:-${stateName}}
+
+#-------------------CITY NAME---------------------#
+
+  echo -e "\n---------------------------------------\n"
+  echo -e "Leave blank for Default:${GREEN} $cityName${NOCOLOR}\n"
+  read -e -r -p "Enter Country Code: " usersCityName
+  usersCityName=${usersCityName:-${cityName}}
+
+
+#-------------------CSR DETAILS---------------------#
+## FINISHED POPULATING THE CSR VARIABLES
+  echo -e "\n---------------------------------------\n"
+  echo -e "${GREEN}You have entered:${NOCOLOR}\n\
+  FQDN......$commonName\n\
+  SAN.......$sanNames\n\
+  Org.......$organisationName\n\
+  Country...$usersCountryCode\n\
+  State.....$usersStateName\n\
+  City......$usersCityName\n"
+
+
+## Confirm to continue and make certificate or 
+  echo -e "${GREEN}Are the details correct?\nSelect yes to continue or no to exit.${NOCOLOR}"
+  select yn in "Yes" "No"; do
+    case $yn in
+        Yes ) break;;
+        No ) exit;;
+    esac
+  done
+  
+########## Heredoc to create OpenSSL Configuration file - .cnf ##########
+
+altNames=""#DNS:$commonName   # , DNS:bar.example.org , DNS:www.foo.example.org
+# subjectAltName entries: to add DNS aliases to the CSR, delete
+# the '#' character in the ALTNAMES line, and change the subsequent
+# 'DNS:' entries accordingly.
+
+  if [ -z "${sanNames}" ]; then
+    echo -e "\nThis request has no specified SAN:\n"
+  else
+    echo -e "\nThis request will have the following SAN:${GREEN} $sanNames\n${NOCOLOR}"
+    ## Build array with sanNames Variable. Delimeter is a space
+    IFS=" " read -r -a sanNames <<< "$sanNames"
+    ## Make another variable for use inside the Config file 
+    altNames=DNS:"$sanNames"
+    ## Iterate over the Array and add the formatting for Config file.
+    if ((${#sanNames[@]})); then
+      for n in "${sanNames[@]:1}"; do
+        altNames="${altNames} , DNS:$n"
+        subjectAltName="subjectAltName = $altNames"
+      done
+    else
+      subjectAltName=""
+    fi
+  fi
+
+
+## Make here doc in temp folder - instead of directly in location: cat >"$sslToolsDirectory/$commonName.cnf"
+  cat >"$sslToolsDirectory/$commonName-tmp.cnf" <<EOF
+# OpenSSL configuration file for creating a CSR
+# To generate CSR from this file use:
+# openssl req -new -config myserver.cnf -keyout myserver.key -out myserver.csr
+
+[ req ]
+distinguished_name = req_distinguished_name
+req_extensions     = req_ext
+prompt             = no
+
+[ req_distinguished_name ]
+C                  = $usersCountryCode
+ST                 = $usersStateName
+L                  = $usersCityName
+O                  = $organisationName
+CN                 = $commonName
+
+[ req_ext ]
+$subjectAltName
+EOF
+########################### End of Heredoc ############################
+
+  ## CHECK IF CONFIG FILE ALREADY EXISTS OR NOT
+  ## Backups up previous version just in case.
+  if [ -f "$sslToolsDirectory/$commonName.cnf" ]; then
+    if [[ "$(md5 "$sslToolsDirectory/$commonName-tmp.cnf" | awk '{print $4}')" == "$(md5 "$sslToolsDirectory/$commonName.cnf" | awk '{print $4}')" ]]; then
+      echo -e "\n${GREEN}Config file for $commonName exists and md5 checksum exact match, Will reuse the existing .cnf file...\n${NOCOLOR}"
+      rm "$sslToolsDirectory/$commonName-tmp.cnf"
+    else
+      echo -e "\n${RED}Config file for $commonName exists with different md5 checksum, backing up old version, adding creation date to name...\n${NOCOLOR}"
+      cnfBirthDate=$(stat -f %SB -t %Y%m%d-%H%M "$sslToolsDirectory/$commonName.cnf")
+      mv -f "$sslToolsDirectory/$commonName.cnf" "$sslToolsDirectory/$commonName-$cnfBirthDate.cnf"
+      mv -f "$sslToolsDirectory/$commonName-tmp.cnf" "$sslToolsDirectory/$commonName.cnf"
+    fi
+  fi
+
+  if [ -f "$sslToolsDirectory/$commonName-tmp.cnf" ]; then
+    mv -f "$sslToolsDirectory/$commonName-tmp.cnf" "$sslToolsDirectory/$commonName.cnf"
+  fi
+  
+  csrFromCnf "$sslToolsDirectory/$commonName.cnf"
+
 
     
   }  ## END OPTION 1.3
@@ -259,7 +426,7 @@ EOF
   ## THIS BUILDS THE CSR FROM CONFIG FILE
   function csrFromCnf(){
     echo -e "\n---------------------------------------\n"
-    echo -e "Using the following OpenSSL:\n$(which openssl)\n$(openssl version)\n"
+    echo -e "${GREEN}Using the following OpenSSL:\n$(which openssl)\n$(openssl version)\n${NOCOLOR}"
     echo -e "Best practice suggests to use a new certificate signing request (CSR) and Private Key when renewing your SSL/TLS certificate.\n
 This script does not store the Private Key password anywhere.
 Without the Private Key password, the certificate is useless. You will not be able to use it on your server.
@@ -269,14 +436,16 @@ If your Private Key is not secured with a password and key falls into the wrong 
     ## $1 is the target from previous function when 'csrFromCnf' was called.
     echo -e "$1\n"
     ## Removing the .cnf from the end of the $1 file name.
-    certFolder=$(echo "$1" | sed 's/....$//')
+    certFolder=$(echo "$1" | sed 's/....$//' | cut -f1 -d"-")
     ## commonName variable was missing contents if renewing from existing...
     commonName=$(basename "$certFolder")
     ## Adding the date to end of the file name.
-    certFolder="${certFolder}-$(date '+%Y-%m-%d')"
+    certFolder="${certFolder}-$(date '+%Y-%m-%d-%H%M')"
     ## Check if directory exists, and setup folder for .csr and .key if it doesn't exist already.
     [ ! -d "$certFolder" ] && echo -e "\n${GREEN}Setting up Certificate folder: $certFolder\n${NOCOLOR}" && mkdir -p "$certFolder" \
     || echo -e "\n${GREEN}Using the following Certificate folder: $certFolder\n${NOCOLOR}" 
+
+    echo ".cnf file used to create CSR and Private Key: $1" >> "$certFolder/Config-file-used.txt"
 
     ## Generating CSR and Private Key
     ## 2048 or 4096 https://expeditedsecurity.com/blog/measuring-ssl-rsa-keys/
@@ -295,7 +464,7 @@ If your Private Key is not secured with a password and key falls into the wrong 
     done
     ## PROMPT USER FOR PRIVATE KEY PASSWORD 
     ## Loops until password entered the same twice consecutively. Doesn't show Password on screen.
-    echo -e "${RED} -> USE A STRONG PASSWORD <-${NOCOLOR}\n"
+    echo -e "${RED} -> USE A STRONG PASSWORD <-\nPassword needs minimum 4. Should have more than 12, mixed upper/lower case, numbers and special characters.\n${NOCOLOR}"
     #TODO: Make loop check for minimum password of 4 characters?
     while :
     do
@@ -352,10 +521,9 @@ do
       break
       ;;
     "Build from existing")
-      ## TODO: MAKE THIS OPTION
-      echo -e "${RED}THIS DOEN'T WORK YET${NOCOLOR}"
-      #buildFromExisting "$@"
-      exit 0
+      ## TODO: Fix up how the SAN are added. seems to add more than whats required/double up of common name.
+      buildFromFQDN "$@"
+      #exit 0
       ;;
     "Quit")
       echo -e "${RED}SSL Tool Aborted${NOCOLOR}"
