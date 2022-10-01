@@ -81,6 +81,21 @@ Creating directory now...\n${NOCOLOR}" && mkdir -p "$sslToolsDirectory"
     fi
   done
 
+if [ -f "$sslToolsDirectory/$commonName.cnf" ]; then
+  echo -e "${GREEN}There is an existing .cnf file for the same Common Name:\n"
+  echo ""
+  cat "$sslToolsDirectory/$commonName.cnf"
+  echo ""
+  echo -e "$sslToolsDirectory/$commonName.cnf"
+  echo -e "Select yes to continue or no to generate from existing .cnf.${NOCOLOR}\n"
+  select yn in "Yes" "No"; do
+    case $yn in
+        Yes ) break;;
+        No ) renewFromExisting "$sslToolsDirectory/$commonName.cnf";;
+    esac
+  done
+fi
+
 #------------------SAN NAMES-------------------#
 
   echo -e "\n---------------------------------------\n"
@@ -261,6 +276,24 @@ EOF
         echo -e "${RED}nslookup cannot validate the FQDN. Check DNS and Server address.\nExample FQDN: my.server.com\n${NOCOLOR}" >&1
       fi
     done
+  
+  if [ -f "$sslToolsDirectory/$domainName.cnf" ]; then
+    echo -e "${GREEN}There is an existing .cnf file for the same Common Name:\n"
+    echo ""
+    cat "$sslToolsDirectory/$domainName.cnf"
+    echo ""
+    echo -e "$sslToolsDirectory/$domainName.cnf"
+    echo -e "Select yes to continue or no to generate from existing .cnf.${NOCOLOR}\n"
+    select yn in "Yes" "No"; do
+      case $yn in
+        Yes ) break;;
+        No ) renewFromExisting "$sslToolsDirectory/$domainName.cnf";;
+      esac
+    done
+  fi
+
+
+
     certificateDetails=$(echo | openssl s_client -showcerts -servername "$domainName" -connect "$domainName":443 2>/dev/null | openssl x509 -inform pem -noout -text)
     #echo "$certificateDetails"
 ###========================== CSR VARIABLES============================##
@@ -445,7 +478,7 @@ If your Private Key is not secured with a password and key falls into the wrong 
     [ ! -d "$certFolder" ] && echo -e "\n${GREEN}Setting up Certificate folder: $certFolder\n${NOCOLOR}" && mkdir -p "$certFolder" \
     || echo -e "\n${GREEN}Using the following Certificate folder: $certFolder\n${NOCOLOR}" 
 
-    echo ".cnf file used to create CSR and Private Key: $1" >> "$certFolder/Config-file-used.txt"
+    echo -e ".cnf file used to create CSR and Private Key: $1\n.cnf File Creation time: $(stat -f %SB -t %Y%m%d-%H%M $1)" >> "$certFolder/Config-file-used.txt"
 
     ## Generating CSR and Private Key
     ## 2048 or 4096 https://expeditedsecurity.com/blog/measuring-ssl-rsa-keys/
@@ -614,10 +647,35 @@ function showSSL {
 
 ###===============================================================#####===============================================================##
 
+## Option 5
+
+function printCertificate {
+  while true; do
+    read -e -r -p "Enter Path to Certificate file: " certToPrint
+    if [ -f "$certToPrint" ]; then
+      echo -e "${RED}Incorrect Path. Try again.${NOCOLOR}" >&2
+    else
+      echo -e "${GREEN}Checking SSL Certificate:${NOCOLOR} $1"
+      echo | openssl s_client -showcerts -servername "$hostURL" -connect "$hostURL":443 2>/dev/null | openssl x509 -inform pem -noout -text
+      sslInfo="$(curl --insecure -vvI https://"$hostURL" 2>&1 | awk 'BEGIN { cert=0 } /^\* SSL connection/ { cert=1 } /^\*/ { if (cert) print }')"
+      echo "$sslInfo"
+
+      if [[ $sslInfo != *"SSL certificate verify ok."* ]]; then
+        echo -e "${RED}Check Certificate Validity!${NOCOLOR}"
+        exit 1
+      fi
+      break
+      fi
+  done
+
+  } ## END OF OPTION 5
+
+###===============================================================#####===============================================================##
+
 ## THIS IS THE MAIN MENU TO SELECT FROM
 
 PS3='Select SSL operation: '
-options=("Generate CSR" "Validate Cert Hash" "Show CSR Details" "Check SSL On Host" "Quit")
+options=("Generate CSR" "Validate Cert Hash" "Show CSR Details" "Check SSL On Host" "Print Certificate to Terminal" "Quit")
 select opt in "${options[@]}"
 do
   case $opt in
@@ -639,6 +697,11 @@ do
     "Check SSL On Host")
       echo -e "${GREEN}Checking the certificate and validity status of target host.${NOCOLOR}"
       showSSL "$@"
+      break
+      ;;
+    "Print Certificate to Terminal")
+      echo -e "${GREEN}Select the certificate file, once printed to screen can copy and paste it elsewhere.${NOCOLOR}"
+      printCertificate "$@"
       break
       ;;
     "Quit")
