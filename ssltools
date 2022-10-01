@@ -655,16 +655,71 @@ function showSSL {
 ## Option 5
 
 function printCertificate {
+
   while true; do
     read -e -r -p "Enter Path to Certificate file: " certToPrint
     if [ ! -f "$certToPrint" ]; then
       echo -e "${RED}Incorrect Path. Try again.${NOCOLOR}" >&2
     else
-      echo -e "${GREEN}Checking SSL Certificate:${NOCOLOR} $1"
-      openssl x509 -text -noout -in "$certToPrint"
       break
       fi
   done
+
+
+  function printCSR () {
+    echo -e "${GREEN}Printing CSR file:${NOCOLOR} $certToPrint"
+    csrFile=$(cat "$certToPrint")
+    echo "$csrFile"
+    echo -n "$csrFile" | pbcopy
+    exit $?
+  }
+  
+  function printPrivateKey () {
+    echo -e "${GREEN}Printing Private Certificate:${NOCOLOR} $certToPrint"
+    privKey=$(openssl rsa -check -in "$certToPrint")
+    echo "$privKey"
+    echo -n "$privKey" | tail -n +2 | pbcopy
+    echo -e "${RED}CAUTION: Keep this Safe and Secure!${NOCOLOR}\n"
+    exit $?
+  }
+
+  function printPublicKey () {
+    echo -e "${GREEN}Printing Public Certificate:${NOCOLOR} $certToPrint"
+    pubKey=$(cat "$certToPrint")
+    echo "$pubKey"
+    echo -n "$pubKey" | pbcopy
+    exit $?
+  }
+
+  ## SUBMENU FOR OPTION 5
+  echo -e "${GREEN}Select the type of Certificate file:${NOCOLOR}\n"
+
+  PS3='Select option: '
+  options=("CSR" "Private Key (.pem or .key)" "Public Key (.pem or .crt)" "Quit")
+  select opt in "${options[@]}"
+  do
+    case $opt in
+      "CSR")
+        printCSR "$@"
+        break
+        ;;
+      "Private Key (.pem or .key)")
+        printPrivateKey "$@"
+        break
+        ;;
+      "Public Key (.pem or .crt)")
+        printPublicKey "$@"
+        #exit 0
+        ;;
+      "Quit")
+        echo -e "${RED}SSL Tool Aborted${NOCOLOR}"
+        exit 0
+        ;;
+      *) echo -e "${RED}invalid option $REPLY${NOCOLOR}";;
+    esac
+  done
+
+
 
   } ## END OF OPTION 5
 
@@ -678,35 +733,35 @@ select opt in "${options[@]}"
 do
   case $opt in
     "Generate CSR")
-      echo "Preparing Certificate Signing Request"
+      echo -e "\n${GREEN}Preparing Certificate Signing Request...${NOCOLOR}\n"
       generateCSR "$@"
       break
       ;;
     "Validate Cert Hash")
-      echo "Comparing md5 values for targeted files"
+      echo -e "\n${GREEN}Comparing md5 values for targeted files...${NOCOLOR}\n"
       checkCertFiles "$@"
       break
       ;;
     "Show CSR Details")
-      echo -e "${GREEN}Showing details of targeted Certificate Signing Request file${NOCOLOR}"
+      echo -e "\n${GREEN}Showing details of targeted Certificate Signing Request file...${NOCOLOR}\n"
       showCSRDetails "$@"
       break
       ;;
     "Check SSL On Host")
-      echo -e "${GREEN}Checking the certificate and validity status of target host.${NOCOLOR}"
+      echo -e "\n${GREEN}Checking the certificate and validity status of target host...${NOCOLOR}\n"
       showSSL "$@"
       break
       ;;
     "Print Certificate to Terminal")
-      echo -e "${GREEN}Select the certificate file, once printed to screen can copy and paste it elsewhere.${NOCOLOR}"
+      echo -e "\n${GREEN}Select the certificate file you want to print...${NOCOLOR}\n"
       printCertificate "$@"
       break
       ;;
     "Quit")
-      echo -e "${RED} SSL Tool Aborted${NOCOLOR}"
+      echo -e "\n${RED} SSL Tool Aborted${NOCOLOR}\n"
       exit 0
       ;;
-    *) echo -e "${RED} invalid option $REPLY${NOCOLOR}";;
+    *) echo -e "\n${RED} invalid option $REPLY${NOCOLOR}\n";;
   esac
 done
 
