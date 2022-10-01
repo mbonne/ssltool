@@ -627,17 +627,22 @@ function showSSL {
     #if ! dig "$hostURL" +short > /dev/null 2>&1; then
       #echo -e "${RED}Couldn't verify host FQDN.\nDon't include https://${NOCOLOR}" >&2
     else
-      echo -e "${GREEN}Checking SSL Certificate:${NOCOLOR} $1"
+      echo -e "${GREEN}Checking SSL Certificate: $1${NOCOLOR}"
       ##TODO: Fix the below. its taking a while to load.
       ## maybe - openssl s_client -showcerts -connect  "$hostURL":443 </dev/null 2>/dev/null| openssl x509 -text -noout
       ## also - to save the .crt/.pem can use - openssl s_client -showcerts -connect  "$hostURL":443 </dev/null 2>/dev/null| openssl x509 -outform PEM
-      echo | openssl s_client -showcerts -servername "$hostURL" -connect "$hostURL":443 2>/dev/null | openssl x509 -inform pem -noout -text
-      sslInfo="$(curl --insecure -vvI https://"$hostURL" 2>&1 | awk 'BEGIN { cert=0 } /^\* SSL connection/ { cert=1 } /^\*/ { if (cert) print }')"
-      echo "$sslInfo"
 
-      if [[ $sslInfo != *"SSL certificate verify ok."* ]]; then
-        echo -e "${RED}Check Certificate Validity!${NOCOLOR}"
+      certInfo="$(echo | openssl s_client -showcerts -servername "$hostURL" -connect "$hostURL":443 2>/dev/null | openssl x509 -inform pem -noout -text)"
+      echo -e "$certInfo\n"
+      #sslInfo="$(curl --insecure -vvI https://"$hostURL" 2>&1 | awk 'BEGIN { cert=0 } /^\* SSL connection/ { cert=1 } /^\*/ { if (cert) print }')"
+      sslInfo="$(echo | openssl s_client -connect "$hostURL":443 -brief 2>&1)"
+
+      if (echo "$sslInfo" | grep error); then
+        echo -e "${RED}!!!! Check Certificate Validity !!!!\n$sslInfo\n!!!! Check Certificate Validity !!!!${NOCOLOR}"
+        echo -e ""
         exit 1
+      else
+        echo -e "${GREEN}\n$sslInfo\n${NOCOLOR}"
       fi
       break
       fi
@@ -652,18 +657,11 @@ function showSSL {
 function printCertificate {
   while true; do
     read -e -r -p "Enter Path to Certificate file: " certToPrint
-    if [ -f "$certToPrint" ]; then
+    if [ ! -f "$certToPrint" ]; then
       echo -e "${RED}Incorrect Path. Try again.${NOCOLOR}" >&2
     else
       echo -e "${GREEN}Checking SSL Certificate:${NOCOLOR} $1"
-      echo | openssl s_client -showcerts -servername "$hostURL" -connect "$hostURL":443 2>/dev/null | openssl x509 -inform pem -noout -text
-      sslInfo="$(curl --insecure -vvI https://"$hostURL" 2>&1 | awk 'BEGIN { cert=0 } /^\* SSL connection/ { cert=1 } /^\*/ { if (cert) print }')"
-      echo "$sslInfo"
-
-      if [[ $sslInfo != *"SSL certificate verify ok."* ]]; then
-        echo -e "${RED}Check Certificate Validity!${NOCOLOR}"
-        exit 1
-      fi
+      openssl x509 -text -noout -in "$certToPrint"
       break
       fi
   done
